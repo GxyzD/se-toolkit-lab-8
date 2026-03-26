@@ -1,12 +1,11 @@
 [project]
-name = "lms-nanobot"
+name = "nanobot-webchat"
 version = "1.0.0"
-description = "Nanobot AI assistant for the LMS with webchat and LMS MCP tools"
-readme = "README.md"
+description = "WebSocket chat channel plugin for nanobot-ai"
 requires-python = ">=3.11"
 dependencies = [
     "nanobot-ai>=0.1.4",
-    "lms-mcp",
+    "websockets>=15.0",
 ]
 
 [build-system]

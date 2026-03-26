@@ -15,92 +15,55 @@ In Lab 7 you built a Telegram bot with your own LLM tool-calling loop — you wr
 | No memory between conversations | **Memory** — the agent remembers context across conversations |
 | Agent only responds when you message it | **Cron** — the agent can act on a schedule (e.g., check system health every 15 minutes) |
 
-The nanobot framework is provided in `nanobot/` — Dockerfile, entrypoint, WebSocket channel plugin, and the nanobot-ai package (as a git submodule). Your job is to **configure** it and **integrate** it into the running system.
+Start by reading the [official nanobot repository](https://github.com/HKUDS/nanobot) to understand how the framework works.
 
-## Part A — Configure nanobot and connect to Qwen API
+## Part A — Install nanobot and chat with it
 
 ### What to do
 
-1. Create `nanobot/config.json` — this is the agent's brain configuration.
-
-   The config needs:
-   - An LLM provider pointing to the Qwen Code API (already running in Docker Compose)
-   - A webchat channel (WebSocket) so clients can connect
-   - No MCP servers yet — this is a bare agent
-
-   Here's a minimal config to start with:
-
-   ```json
-   {
-     "agents": {
-       "defaults": {
-         "model": "coder-model",
-         "provider": "custom",
-         "temperature": 0.1
-       }
-     },
-     "channels": {
-       "webchat": {
-         "enabled": true,
-         "allow_from": ["*"]
-       }
-     },
-     "gateway": {
-       "heartbeat": { "enabled": false }
-     }
-   }
-   ```
-
-   The LLM provider URL and API key are passed via environment variables (`NANOBOT_PROVIDERS__CUSTOM__API_KEY` and `NANOBOT_PROVIDERS__CUSTOM__API_BASE`). The WebSocket host/port are set in the entrypoint.
-
-2. Add a `nanobot` service to `docker-compose.yml`:
-
-   ```yaml
-   nanobot:
-     build:
-       context: ./nanobot
-       additional_contexts:
-         workspace: .
-       args:
-         REGISTRY_PREFIX_DOCKER_HUB: ${REGISTRY_PREFIX_DOCKER_HUB:?'REGISTRY_PREFIX_DOCKER_HUB is required'}
-     restart: unless-stopped
-     networks:
-       - lms-network
-     environment:
-       - NANOBOT_LMS_BACKEND_URL=http://backend:${BACKEND_CONTAINER_PORT}
-       - NANOBOT_GATEWAY_CONTAINER_ADDRESS=0.0.0.0
-       - NANOBOT_GATEWAY_CONTAINER_PORT=18790
-       - NANOBOT_WEBCHAT_CONTAINER_ADDRESS=0.0.0.0
-       - NANOBOT_WEBCHAT_CONTAINER_PORT=8765
-       - NANOBOT_PROVIDERS__CUSTOM__API_KEY=${LLM_API_KEY}
-       - NANOBOT_PROVIDERS__CUSTOM__API_BASE=${LLM_API_BASE_URL}
-     depends_on:
-       - backend
-   ```
-
-3. Add a `/ws/chat` route to `caddy/Caddyfile` that proxies WebSocket connections to nanobot:
-
-   ```
-   handle /ws/chat {
-       reverse_proxy http://nanobot:8765
-   }
-   ```
-
-   Also add `nanobot` to caddy's `depends_on` and add `NANOBOT_WEBCHAT_CONTAINER_PORT` to caddy's environment if you want to use a variable instead of hardcoding 8765.
-
-4. Deploy:
+1. Add nanobot as a git submodule so the source code is available in the project:
 
    ```terminal
-   docker compose --env-file .env.docker.secret up --build -d
+   git submodule add https://github.com/HKUDS/nanobot.git packages/nanobot-ai
    ```
 
-5. Test the connection with `websocat` (or any WebSocket client):
+2. Install it with uv:
 
    ```terminal
-   echo '{"content":"Hello! What can you do?"}' | websocat ws://localhost:42002/ws/chat
+   uv add nanobot-ai --path packages/nanobot-ai
    ```
 
-   The agent should respond with a general answer. It's connected to the LLM but has no knowledge of the LMS yet.
+3. Run the onboard wizard to generate the initial configuration:
+
+   ```terminal
+   nanobot onboard
+   ```
+
+   The wizard will guide you through configuring the LLM provider. Set up the **custom** provider (any OpenAI-compatible endpoint) and point it to the Qwen Code API:
+   - **Base URL:** `http://localhost:42005/v1`
+   - **API key:** your `QWEN_CODE_API_KEY` from `.env.docker.secret`
+   - **Default model:** `coder-model`
+
+   This generates `~/.nanobot/config.json` and a workspace at `~/.nanobot/workspace`.
+
+4. Chat with the agent in the terminal:
+
+   ```terminal
+   nanobot agent
+   ```
+
+   This starts an interactive CLI session. Try asking:
+   - "Hello! What can you do?"
+   - "What is the agentic loop?" (quiz question Q18)
+   - "What labs are available in our LMS?"
+
+   The agent answers general questions well, but it has no idea about the LMS — it will hallucinate or say it doesn't know. That's expected — it has no tools yet.
+
+5. Try a single-message query:
+
+   ```terminal
+   nanobot agent -m "What is 2+2?"
+   ```
 
 <!-- STOP -->
 > [!CAUTION]
@@ -113,14 +76,13 @@ The nanobot framework is provided in `nanobot/` — Dockerfile, entrypoint, WebS
 
 ### Checkpoint
 
-1. Run `docker compose --env-file .env.docker.secret ps` — the `nanobot` service should be running.
-2. Ask the agent via WebSocket: **"What is the agentic loop?"** (this is quiz question Q18). It should give a reasonable general answer.
-3. Ask the agent: **"What labs are available in our LMS?"** — it should **not** know. It will hallucinate or say it doesn't have access.
-4. Paste both responses into `REPORT.md` under `## Task 1A — Bare agent`.
+1. Run `nanobot agent -m "What is the agentic loop?"` — you should get a reasonable answer.
+2. Run `nanobot agent -m "What labs are available in our LMS?"` — it should **not** know (no tools).
+3. Paste both responses into `REPORT.md` under `## Task 1A — Bare agent`.
 
 ---
 
-## Part B — Give the agent LMS tools
+## Part B — Connect the agent to the LMS backend
 
 ### What is MCP?
 
@@ -130,46 +92,33 @@ The same MCP server works with any agent that speaks MCP — nanobot, Claude, Cu
 
 ### What to do
 
-The LMS MCP server is already provided in `mcp/mcp_lms/`. It exposes the backend API as tools: `lms_health`, `lms_labs`, `lms_scores`, `lms_pass_rates`, etc.
+The LMS MCP server is provided in `mcp/mcp_lms/`. It exposes the backend API as tools: `lms_health`, `lms_labs`, `lms_scores`, `lms_pass_rates`, etc.
 
-> **Important — API key flow:** Every MCP tool requires an `api_key` parameter. The webchat channel plugin (`nanobot_webchat`) automatically prepends `[LMS_API_KEY=<key>]` to every user message when the client sends an API key. Your skill prompt must instruct the agent to extract this key and pass it to tool calls.
-
-1. Add the MCP server to your `nanobot/config.json`. Add a `tools` section:
-
-   ```json
-   "tools": {
-     "mcp_servers": {
-       "lms": {
-         "type": "stdio",
-         "command": "python",
-         "args": ["-m", "mcp_lms"]
-       }
-     }
-   }
-   ```
-
-   > **Hint:** The MCP server needs the backend URL. The entrypoint already forwards the `NANOBOT_LMS_BACKEND_URL` environment variable into MCP server subprocesses.
-
-2. Write a skill prompt at `nanobot/workspace/skills/lms/SKILL.md`.
-
-   A skill prompt teaches the agent *when* and *why* to use each tool — not the mechanics (the framework handles that). It should cover:
-   - How to extract the API key from `[LMS_API_KEY=...]` in the user message
-   - When asked about labs, use `mcp_lms_labs`
-   - When asked about scores or pass rates, use `mcp_lms_pass_rates` with the lab name
-   - When asked about system health, use `mcp_lms_health`
-   - Never include the API key in responses to the user
-
-3. Redeploy:
+1. Install the MCP server as a dependency so nanobot can find it:
 
    ```terminal
-   docker compose --env-file .env.docker.secret up --build -d
+   uv add lms-mcp --path mcp
    ```
 
-4. Test again via the Flutter app or WebSocket. Ask: **"What labs are available?"**
+2. Add the MCP server to your nanobot config (`~/.nanobot/config.json`). Check the [nanobot docs](https://github.com/HKUDS/nanobot) for how to configure MCP servers. It runs as a subprocess via `python -m mcp_lms`.
 
-   Now the agent should return **real lab names** from the backend.
+   > **Hint:** The MCP server needs the backend URL. You can set it as an environment variable: `NANOBOT_LMS_BACKEND_URL=http://localhost:42002`
 
-5. Try a quiz question that needs system knowledge: **"Describe the architecture of the LMS system we built during the labs"** (Q22). Compare this answer with what the bare agent said — it should now mention actual services.
+3. Test with the agent:
+
+   ```terminal
+   NANOBOT_LMS_BACKEND_URL=http://localhost:42002 nanobot agent -m "What labs are available?"
+   ```
+
+   The agent should now call the MCP tools and return **real lab names** from the backend.
+
+4. Try a more complex question:
+
+   ```terminal
+   NANOBOT_LMS_BACKEND_URL=http://localhost:42002 nanobot agent -m "Which lab has the lowest pass rate?"
+   ```
+
+   The agent should chain multiple tool calls to figure this out.
 
 <!-- STOP -->
 > [!CAUTION]
@@ -182,46 +131,29 @@ The LMS MCP server is already provided in `mcp/mcp_lms/`. It exposes the backend
 
 ### Checkpoint
 
-1. Ask the agent **"What labs are available?"** — it should return real lab names from the backend (e.g., `lab-01`, `lab-02`).
-2. Ask the agent **"Describe the architecture of the LMS system"** — it should mention specific services from the actual deployment.
+1. Ask the agent **"What labs are available?"** — it should return real lab names (e.g., `lab-01`, `lab-02`).
+2. Ask the agent **"Describe the architecture of the LMS system"** (Q22) — it should mention specific services.
 3. Paste both responses into `REPORT.md` under `## Task 1B — Agent with LMS tools`.
 
 ---
 
-## Part C — Add a chat client
+## Part C — Write a skill prompt
 
-Talking to the agent via `websocat` works but isn't a great user experience. Let's add a proper chat UI.
-
-The Flutter web client is provided in `client-web-flutter/`. You don't need Flutter installed — Docker builds it using a Flutter builder image that compiles Dart to static HTML/JS/CSS files.
+The agent works, but it could be smarter about *how* it uses tools. A **skill prompt** teaches the agent strategy — when to use which tool, how to handle authentication, how to format responses.
 
 ### What to do
 
-1. Add a `client-web-flutter` service to `docker-compose.yml`. It should:
-   - Build from `client-web-flutter/`
-   - Output to a named volume (e.g., `client-web-flutter`)
-   - Don't forget to add the volume to the `volumes:` section at the bottom
+1. Write a skill prompt at `nanobot/workspace/skills/lms/SKILL.md` (or wherever your workspace is located).
 
-2. Update the `caddy` service:
-   - Add `client-web-flutter` as a dependency
-   - Mount the Flutter volume at `/srv/flutter:ro`
+   The skill should teach the agent:
+   - Which `mcp_lms_*` tools are available and when to use each one
+   - When a lab parameter is needed and not provided, ask the user which lab
+   - Format numeric results nicely (percentages, counts)
+   - Keep responses concise
 
-3. Add a `/flutter` route to `caddy/Caddyfile`:
+   > **Hint:** Look at the tools in `mcp/mcp_lms/server.py` to see what's available and what parameters each tool needs.
 
-   ```
-   handle_path /flutter* {
-       root * /srv/flutter
-       try_files {path} /index.html
-       file_server
-   }
-   ```
-
-4. Redeploy:
-
-   ```terminal
-   docker compose --env-file .env.docker.secret up --build -d
-   ```
-
-5. Open `http://localhost:42002/flutter` in a browser. Log in with your `LMS_API_KEY`. Chat with the agent.
+2. Test the difference — ask the same questions and see if the agent's behavior improves.
 
 <!-- STOP -->
 > [!CAUTION]
@@ -234,17 +166,15 @@ The Flutter web client is provided in `client-web-flutter/`. You don't need Flut
 
 ### Checkpoint
 
-1. Open `http://localhost:42002/flutter` in a browser — you should see a login screen.
-2. Log in with your API key and ask the agent a question from the quiz question bank — pick any question you want to practice.
-3. Screenshot the conversation and add it to `REPORT.md` under `## Task 1C — Chat client`.
+1. Ask the agent **"Show me the scores"** (without specifying a lab) — it should ask you which lab, or list available labs.
+2. Paste the response into `REPORT.md` under `## Task 1C — Skill prompt`.
 
 ---
 
 ## Acceptance criteria
 
-- Nanobot runs as a Docker Compose service with a valid `config.json`.
-- The agent connects to the Qwen Code API and responds to general questions.
-- MCP tools are registered and the agent can query backend data (items, analytics, pass rates).
-- A skill prompt exists at `nanobot/workspace/skills/lms/SKILL.md`.
-- The Flutter web client is accessible at `/flutter` and communicates with the agent via WebSocket.
+- Nanobot is installed as a submodule and configured via `nanobot onboard`.
+- The agent responds to general questions via `nanobot agent`.
+- MCP tools are configured and the agent returns real backend data.
+- A skill prompt exists that guides the agent's tool usage.
 - `REPORT.md` contains responses from all three checkpoints.

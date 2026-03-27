@@ -7,6 +7,7 @@
     - [1.1.3. Enable issues](#113-enable-issues)
     - [1.1.4. Add a classmate as a collaborator](#114-add-a-classmate-as-a-collaborator)
     - [1.1.5. Protect your `main` branch](#115-protect-your-main-branch)
+    - [1.1.6. Sync your fork with upstream](#116-sync-your-fork-with-upstream)
   - [1.2. SSH into your VM and set up the environment there](#12-ssh-into-your-vm-and-set-up-the-environment-there)
   - [1.3. Stop Lab 7 services on your VM to free the ports](#13-stop-lab-7-services-on-your-vm-to-free-the-ports)
   - [1.4. Start the services on your VM](#14-start-the-services-on-your-vm)

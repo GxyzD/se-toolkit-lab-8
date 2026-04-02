@@ -66,7 +66,7 @@ The nanobot gateway is running successfully in Docker with the webchat channel e
 
 <!-- Screenshot of a conversation with the agent in the Flutter web app -->
 
-The Flutter web client is accessible at `http://localhost:42002/flutter`.
+The Flutter web client is accessible at `http://localhost:42002/flutter`
 
 WebSocket test response:
 ```

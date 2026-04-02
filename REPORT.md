@@ -22,7 +22,7 @@ This pattern is central to how modern AI agents maintain awareness of their envi
 
 **Question:** What labs are available?
 **Answer:** 🐈 nanobot
-Based on the LMS system, here are the available labs:
+Based on the LMS system here are the available labs:
 
  1 Lab 01 – Products, Architecture & Roles
  2 Lab 02 – Run, Fix, and Deploy a Backend Service

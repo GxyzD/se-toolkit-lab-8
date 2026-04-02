@@ -12,7 +12,7 @@ The agentic loop is a fundamental pattern that governs how AI agents operate aut
  4 Act — Execute the planned actions in the environment
 
 After acting, the cycle repeats as the agent perceives the results of its actions and adjusts its understanding and plans accordingly. This creates a continuous feedback loop that enables autonomous    
-decision-making and goal-directed behavior.
+decision-making and goal-directed behavior
 
 Some implementations also include explicit reflection phases where the agent evaluates its performance and learns from experience to improve future iterations.
 
